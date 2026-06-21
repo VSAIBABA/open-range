@@ -324,7 +324,20 @@ class PodActionBackend:
         sender = str(action.payload.get("from", action.actor_id))
         recipient = str(action.payload.get("to", "noreply@corp.local"))
         subject = str(action.payload.get("subject", "routine update"))
-        payload = (
+        # Email social-engineering channel: embed attachment metadata in the
+        # SMTP body so svc-email logs it and svc-siem can surface it to blue.
+        channel = str(action.payload.get("channel", ""))
+        attachment_type = str(action.payload.get("attachment_type", ""))
+        lure_pretext = str(action.payload.get("lure_pretext", ""))
+        if channel == "email" and attachment_type:
+            body_line = (
+                f"[openrange-phishing] attachment={attachment_type}"
+                f" pretext={lure_pretext or 'generic'}"
+            )
+        else:
+            body_line = "OpenRange test mail."
+        
+        smtp_payload = (
             "HELO corp.local\n"
             f"MAIL FROM:<{sender}>\n"
             f"RCPT TO:<{recipient}>\n"
@@ -335,7 +348,7 @@ class PodActionBackend:
             "QUIT\n"
         )
         return (
-            f"printf %s {shlex.quote(payload)} | nc -w 3 {shlex.quote(target)} {port}"
+            f"printf %s {shlex.quote(smtp_payload)} | nc -w 3 {shlex.quote(target)} {port}"
         )
 
     def _is_contained(self, target: str) -> bool:
