@@ -185,6 +185,15 @@ class ScriptedGreenScheduler:
             self._reactive_queue[slot].append(
                 self._recover_action(reporter.id, event.target_entity)
             )
+        # Email channel: InitialAccess via phishing triggers a mailbox quarantine
+        # action so blue agents see an additional containment signal on svc-email.
+        if event.event_type == "InitialAccess" and event.source_entity not in {
+            "svc-web", "svc-idp", "svc-db", "svc-fileshare"
+        }:
+            self._reactive_queue[slot].append(
+                self._quarantine_mailbox_action(reporter.id, event.target_entity)
+            )
+
 
     def _schedule_small_llm_reaction(
         self, event: RuntimeEvent, personas: list[Any], slot: int
@@ -284,6 +293,23 @@ class ScriptedGreenScheduler:
                 "reported_target": target,
             },
         )
+    
+    @staticmethod
+    def _quarantine_mailbox_action(actor_id: str, target: str) -> Action:
+        """Quarantine the affected mailbox on svc-email after a phishing hit."""
+        return Action(
+            actor_id=actor_id,
+            role="green",
+            kind="shell",
+            payload={
+                "target": "svc-siem",
+                "command": "printf '%s\n' openrange-mailbox-quarantine >> /tmp/openrange-green-email-quarantine",
+                "branch": "quarantine_mailbox",
+                "reported_target": target,
+                "reported_event_type": "InitialAccess",
+            },
+        )
+
 
 
 def _routine_service(routine: str) -> str:
