@@ -135,6 +135,8 @@ class PodActionBackend:
             return self._run_in_runner(action, self._shell_command(action))
         if action.kind == "mail":
             return self._run_in_runner(action, self._mail_command(action))
+        if action.kind == "voice":
+            return self._run_in_runner(action, self._voice_command(action))
         if action.kind == "api":
             return self._run_in_runner(action, self._api_command(action))
         return ActionExecution(
@@ -350,6 +352,46 @@ class PodActionBackend:
         )
         return (
             f"printf %s {shlex.quote(smtp_payload)} | nc -w 3 {shlex.quote(target)} {port}"
+        )
+
+    def _voice_command(self, action: Action) -> str:
+        """Execute a voice call via PBX service.
+
+        Voice calls are logged as Call Detail Records (CDRs) to the SIEM for
+        blue team visibility. The CDR captures call metadata (caller, extension,
+        duration, pretext) so blue can detect social engineering attacks.
+        """
+        target = action_target(action) or "svc-pbx"
+        service = self._service_by_id.get(target)
+        if service is None:
+            return f"echo unknown voice target {target}; exit 1"
+
+        caller_id = str(action.payload.get("from_id", action.actor_id))
+        to_extension = str(action.payload.get("to_extension", ""))
+        pretext = str(action.payload.get("pretext", "social_engineering"))
+        lure_type = str(action.payload.get("lure_type", "social_engineering"))
+
+        # Voice channel: embed call metadata in CDR record so svc-pbx logs it
+        # and svc-siem can surface it to blue team for analysis.
+        channel = str(action.payload.get("channel", ""))
+        if channel == "voice":
+            cdr_line = (
+                f"[openrange-voice-call] caller={caller_id}"
+                f" extension={to_extension}"
+                f" pretext={pretext}"
+                f" lure_type={lure_type}"
+            )
+        else:
+            cdr_line = "[openrange-voice-call] generic call"
+
+        # Simulate voice call via syslog to PBX (port 514 typically)
+        # The PBX logs this as a CDR, visible to SIEM
+        port = service.ports[0] if service.ports else 514
+        cdr_payload = (
+            f"<14>openrange-pbx: {cdr_line}\n"
+        )
+        return (
+            f"printf %s {shlex.quote(cdr_payload)} | nc -w 2 {shlex.quote(target)} {port}"
         )
 
     def _is_contained(self, target: str) -> bool:

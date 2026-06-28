@@ -56,6 +56,29 @@ def email_channel_events(
     )
 
 
+def voice_channel_events(
+    action: Action,
+    *,
+    personas: tuple[GreenPersona, ...],
+    emit_event: EmitEvent,
+    service_surfaces: ServiceSurfaceResolver,
+) -> tuple[RuntimeEvent, ...]:
+    """Delegate voice social-engineering actions to the voice channel handler.
+
+    Called by the runtime when it sees kind='voice' + payload channel='voice'.
+    Handles voice pretext calls where red agents attempt to socially engineer
+    NPCs via simulated phone calls (text-based transcripts).
+    """
+    from open_range.channels.voice import handle_voice_action
+
+    return handle_voice_action(
+        action,
+        personas=personas,
+        emit_event=emit_event,
+        service_surfaces=service_surfaces,
+    )
+
+
 def green_events_for_action(
     action: Action,
     *,

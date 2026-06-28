@@ -15,8 +15,10 @@ from open_range.probe_planner import runtime_action as reference_runtime_action
 from open_range.rewards import RewardEngine
 from open_range.runtime_events import (
     action_target,
+    email_channel_events,
     green_events_for_action,
     red_events_for_step,
+    voice_channel_events,
 )
 from open_range.runtime_types import (
     Action,
@@ -475,35 +477,59 @@ class ReferenceDrivenRuntime:
         stdout = live.stdout or "red action had no strategic effect"
         stderr = live.stderr
 
-        expected = self._next_red_step()
-        blocked_reason = self._path_block_reason(target)
-        if blocked_reason:
-            blocked_msg = f"target {target} is {blocked_reason}"
-            if blocked_msg not in {
-                line.strip() for line in stderr.splitlines() if line.strip()
-            }:
-                stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
-        elif (
-            expected is not None
-            and live.ok
-            and self._matches_step(action, expected, live.stdout)
-        ):
-            self._red_progress += 1
-            stdout = f"red advanced on {target}"
-            batch = red_events_for_step(
-                expected,
-                action,
-                last_red_target=self._last_red_target,
-                emit_event=emit_event,
-                service_surfaces=self._service_surfaces,
+        # Social-engineering channels: handle mail/voice actions with channel-specific logic
+        channel = str(action.payload.get("channel", "")).lower()
+        if action.kind == "mail" and channel == "email" and live.ok:
+            emitted = list(
+                email_channel_events(
+                    action,
+                    personas=tuple(self._snapshot.world.green_personas),
+                    emit_event=emit_event,
+                    service_surfaces=self._service_surfaces,
+                )
             )
-            emitted = list(batch.events)
-            self._red_objectives_satisfied.update(batch.satisfied_objectives)
-            self._last_red_target = batch.last_red_target
-            if batch.last_red_target:
-                self._red_footholds.add(batch.last_red_target)
+            stdout = f"red sent phishing email to {action.payload.get('to', 'target')}"
+        elif action.kind == "voice" and channel == "voice" and live.ok:
+            emitted = list(
+                voice_channel_events(
+                    action,
+                    personas=tuple(self._snapshot.world.green_personas),
+                    emit_event=emit_event,
+                    service_surfaces=self._service_surfaces,
+                )
+            )
+            stdout = f"red placed voice call to extension {action.payload.get('to_extension', 'target')}"
         else:
-            stdout = live.stdout or f"red executed on {target or 'unknown target'}"
+            # Standard curriculum-based path (non-channel actions)
+            expected = self._next_red_step()
+            blocked_reason = self._path_block_reason(target)
+            if blocked_reason:
+                blocked_msg = f"target {target} is {blocked_reason}"
+                if blocked_msg not in {
+                    line.strip() for line in stderr.splitlines() if line.strip()
+                }:
+                    stderr = "\n".join(filter(None, [stderr, blocked_msg])).strip()
+            elif (
+                expected is not None
+                and live.ok
+                and self._matches_step(action, expected, live.stdout)
+            ):
+                self._red_progress += 1
+                stdout = f"red advanced on {target}"
+                batch = red_events_for_step(
+                    expected,
+                    action,
+                    last_red_target=self._last_red_target,
+                    emit_event=emit_event,
+                    service_surfaces=self._service_surfaces,
+                )
+                emitted = list(batch.events)
+                self._red_objectives_satisfied.update(batch.satisfied_objectives)
+                self._last_red_target = batch.last_red_target
+                if batch.last_red_target:
+                    self._red_footholds.add(batch.last_red_target)
+            else:
+                stdout = live.stdout or f"red executed on {target or 'unknown target'}"
 
         reward_delta = self.reward_engine.on_red_action(
             action,
@@ -801,7 +827,7 @@ class ReferenceDrivenRuntime:
             expected_contains = str(expected.payload.get("expect_contains", "")).strip()
             if expected_contains and expected_contains not in live_stdout:
                 return False
-        if action.kind in {"shell", "mail"}:
+        if action.kind in {"shell", "mail", "voice"}:
             expected_path = expected.payload.get("path")
             actual_path = action.payload.get("path")
             if (expected_path or actual_path) and actual_path != expected_path:
@@ -1077,7 +1103,7 @@ class ReferenceDrivenRuntime:
             weakness_id = str(
                 action.payload.get("weakness_id", action.payload.get("weakness", ""))
             ).strip()
-            if action.kind in {"api", "shell", "mail"} and weakness_id:
+            if action.kind in {"api", "shell", "mail", "voice"} and weakness_id:
                 weakness = self._active_weakness(weakness_id)
                 if weakness is None:
                     return ActionExecution(
@@ -1089,7 +1115,7 @@ class ReferenceDrivenRuntime:
                 )
             return ActionExecution(
                 stdout=str(action.payload.get("expect_contains", ""))
-                if action.kind in {"api", "shell", "mail"}
+                if action.kind in {"api", "shell", "mail", "voice"}
                 else "",
                 containment_applied=action.kind == "control" and directive == "contain",
                 patch_applied=action.kind == "control"

@@ -153,6 +153,10 @@ def render_action_text(action: Action) -> str:
         to = str(action.payload.get("to", target or "user@corp.local"))
         subject = str(action.payload.get("subject", "openrange"))
         return f"send mail to {to} subject={subject}"
+    if action.kind == "voice":
+        extension = str(action.payload.get("to_extension", target or "1000"))
+        pretext = str(action.payload.get("pretext", "social_engineering"))
+        return f"call extension {extension} pretext={pretext}"
     if action.kind == "control":
         directive = str(action.payload.get("action", "contain")).lower()
         return f"{directive} {target}".strip()

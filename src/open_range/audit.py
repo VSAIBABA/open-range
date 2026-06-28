@@ -398,6 +398,11 @@ def command_text_for_action(action: Action) -> str:
         recipient = str(action.payload.get("to", "noreply@corp.local"))
         subject = str(action.payload.get("subject", "routine update"))
         return f"mail {target or 'svc-email'} {sender} {recipient} {subject}"
+    if action.kind == "voice":
+        caller = str(action.payload.get("from_id", action.actor_id))
+        extension = str(action.payload.get("to_extension", "unknown"))
+        pretext = str(action.payload.get("pretext", "social_engineering"))
+        return f"voice {target or 'svc-pbx'} {caller} {extension} {pretext}"
     if action.kind == "api":
         path = str(action.payload.get("path", "/") or "/")
         query = action.payload.get("query", {})

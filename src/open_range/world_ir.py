@@ -145,6 +145,7 @@ class GreenPersona(_StrictModel):
     department: str = ""
     home_host: str = ""
     mailbox: str = ""
+    phone_extension: str = ""
     awareness: float = Field(default=0.5, ge=0.0, le=1.0)
     susceptibility: dict[str, float] = Field(default_factory=dict)
     routine: tuple[str, ...] = Field(default_factory=tuple)
